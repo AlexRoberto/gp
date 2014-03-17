@@ -63,7 +63,8 @@ class Genetic_Programming(object):
         self._load_train_or_test_(self._test)
         self._create_population_()
         self._fitness()
-    
+        self.test()
+        
     def _load_train_or_test_(self, train_or_test):
         count = 0
         load = []
@@ -166,154 +167,164 @@ class Genetic_Programming(object):
                 return Tree(operador, filho_esquerda, filho_direita)
             
     def _fitness(self):
-        dic_funcao = {} #a chave eh o id do objeto, o item eh a funcao
-        funcao_normalizada = {} #normalizada entre 0 e 1    
+        function = {} #a chave eh o id do objeto, o item eh a funcao
+        function_normalized = {} #normalizada entre 0 e 1    
         count = 0
-        for individuo in populacao:
-            if individuo["calculou"] == True:
+        for individual in self._population:
+            if individual["calculou"] == True:
                 count += 1
                 continue
             else:    
                 #calcula funcao        
-                calcula_funcao(individuo["key"], objeto_treino, dic_classe, dic_funcao)
-            
+                self._function(individual["key"], function)
+                
                 #normaliza        
-                list_aux = []
-                for k, v in dic_funcao.iteritems():
-                    list_aux.append(v)
-                minimo = min(list_aux)
-                maximo = max(list_aux)
-            
-                '''se o individuo atribuiu o mesmo valor de funcao para todos os individuos
-                maximo - minimo = 0, logo, ele nao eh util'''
-                if maximo == minimo:
-                    del populacao[count]
-                    continue
-                for k, v in dic_funcao.iteritems():
-                    funcao_normalizada[k] = float((v - minimo)/(maximo-minimo))
-            
-                list_threshold = []
-                list_opcoes = []
-            
-                for i in range(50):
-                    list_opcoes.append(random.uniform(0.0, 1.0))
-                #calcula threshold        
-                for threshold in list_opcoes:
-                    list_final = []
-                    for k, v in funcao_normalizada.iteritems():
-                        if v < threshold:
-                            aux = {"key": k, "classe": classe[0]}
-                        else:
-                            aux = {"key": k, "classe": classe[1]}
-                        list_final.append(aux)
-    
-                    acerto = 0
-                    for j in list_final:
-                        if (j['classe'] == dic_classe[j['key']] and dic_classe[j['key']] == classe[1]):
-                            acerto += 1            
-                        elif(j['classe'] == dic_classe[j['key']] and dic_classe[j['key']] == classe[0]):
-                            acerto += 1
-                    a = {"threshold": threshold, "acerto": acerto}
-                    list_threshold.append(a)
-    
-                list_threshold = sorted(list_threshold, key=itemgetter("acerto"),reverse = True)
-                threshold = list_threshold[0]["threshold"]
-                populacao[count]["threshold"] = threshold
-                populacao[count]["calculou"] = True
-            
-                #classifica os dados com a funcao dada
-                dic_classificacao = {}
-                for k, v in funcao_normalizada.iteritems():
-                    if v < threshold:
-                        dic_classificacao[k] = classe[0]
-                    else:
-                        dic_classificacao[k] = classe[1]
-            
-                #declara as variaveis que serao utilizadas para construir a matriz de confusao
-                tp = 0 #true positive
-                fp = 0 #false positive
-                fn = 0 #false negative
-                tn = 0 #true negative
-    
-                for k, v in dic_classificacao.iteritems():
-                    a = v
-                    b = dic_classe[k]
-                    if (b == classe[1]) and (a == classe[1]):#tp
-                        tp += 1
-                    elif (b == classe[0]) and (a == classe[0]): #tn
-                        tn += 1
-                    elif (b == classe[1]) and (a == classe[0]): #fp
-                        fp += 1
-                    else: #fn
-                        fn += 1
-    
-                precision = float(tp)/float(tp+fp)
-                recall = float(tp)/float(tp+fn)
-    
+                self._normalized(function_normalized, function, count)
+                
+                #calcula threshold
+                self._threshold(function_normalized, function, count)
+
+                #precision and recall
+                precision, recall, tp, fp, fn, tn = self._matrix_confusion(function_normalized, function, count)
                 try:
                     fitness = 2.0*(precision*recall)/(precision+recall)
-                    populacao[count]["fitness"] = fitness
-                    populacao[count]["tp"] = tp
-                    populacao[count]["tn"] = tn
-                    populacao[count]["fp"] = fp
-                    populacao[count]["fn"] = fn
+                    self._population[count]["fitness"] = fitness
+                    self._population[count]["tp"] = tp
+                    self._population[count]["tn"] = tn
+                    self._population[count]["fp"] = fp
+                    self._population[count]["fn"] = fn
                     count += 1
                 except:
-                    del populacao[count]
+                    del self._population[count]
                     continue
-    def calcula_funcao(self, individuo, objeto_treino, dic_classe, dic_funcao):
-        list_funcao = []
+                
+    def _normalized(self, function_normalized, function, count):
+        values = []
+        for value in function.items():
+            values.append(value)
+        min_ = min(values)
+        max_ = max(values)
+    
+        '''se o individuo atribuiu o mesmo valor de funcao para todos os individuos
+        maximo - minimo = 0, logo, ele nao eh util'''
+        if max_ == min_:
+            del self._population[count]
+            return
+        for key, value in function.iteritems():
+            function_normalized[key] = float((value - min_)/(max_-min_))
+            
+    def _threshold(self, function_normalized, function, count):
+        thresholds = []
+        thresholds_options = []
+    
+        for i in range(50):
+            thresholds_options.append(random.uniform(0.0, 1.0))
+        
+        first_class = 0
+        second_class = 1
+        for threshold in thresholds_options:
+            thresholds_final = []
+            for key, value in function_normalized.iteritems():
+                if value < threshold:
+                    thresholds_final.append({"key": key, "class": self._class_[first_class]})
+                else:
+                    thresholds_final.append({"key": key, "class": self._class_[second_class]})
+
+            hit = 0
+            for threshold_final in thresholds_final:
+                if (threshold_final['class'] == function[threshold_final['key']] and \
+                        function[threshold_final['key']] == self._class_[first_class]):
+                    hit += 1
+                elif(threshold_final['class'] == function[threshold_final['key']] and \
+                        function[threshold_final['key']] == self._class_[second_class]):
+                    hit += 1
+            thresholds.append({"threshold": threshold, "hit": hit})
+
+        thresholds = sorted(thresholds, key=itemgetter("acerto"),reverse = True)
+        first_threshold = 0
+        threshold = thresholds[first_threshold]["threshold"]
+        self._population[count]["threshold"] = threshold
+        self._population[count]["calculou"] = True
+        
+    def _matrix_confusion(self, function_normalized, function, count):
+        classified = {}
+        
+        first_class = 0
+        second_class = 1
+        
+        threshold = self._population[count]["threshold"]
+        for key, v in function_normalized.iter():
+            if v < threshold:
+                classified[key] = self._class_[first_class]
+            else:
+                classified[key] = self._class_[second_class]
+
+        tp = 0 #true positive
+        fp = 0 #false positive
+        fn = 0 #false negative
+        tn = 0 #true negative
+
+        for key, value in classified.iteritems():
+            if (function[key] == self._class_[second_class]) and (value == self._class_[second_class]):#tp
+                tp += 1
+            elif (function[key] == self._class_[first_class]) and (value == self._class_[first_class]): #tn
+                tn += 1
+            elif (function[key] == self._class_[second_class]) and (value == self._class_[first_class]): #fp
+                fp += 1
+            else: #fn
+                fn += 1
+
+        precision = float(tp)/float(tp+fp)
+        recall = float(tp)/float(tp+fn)
+        return(precision, recall,tp, fp, fn, tn)
+    
+    def _function(self, function, individual):
+        functions = []
+        Tree.InOrder(individual, functions)
         '''para cada objeto, calcula a funcao correspondente a ele baseado no 
         individuo que chegou'''
-        for k, v in objeto_treino.iteritems():
-            funcao = 0
+        for key, value in self._train_set.iteritems():
+            function_ = 0
             count = 0
-            operacoes = ""
+            operations = ""
             
-            for i in list_funcao:
-                if i == "+" or i == "-" or i == "/" or i == "*" or i == "/":
-                    operacoes = i
+            for node in functions:
+                if node == "+" or node == "-" or node == "/" or node == "*" or node == "/":
+                    operations = node
                     continue
-                if type(i) is float:
+                if type(node) is float:
                     if count == 0:
-                        funcao = i
+                        function_ = node
                         count = 1
                     else:
-                        if operacoes == "+":
-                            funcao += i
-                        elif operacoes == "-":
-                            funcao -= i
-                        elif operacoes == "*":
-                            funcao *= i
-                        elif operacoes == "/":
-                            if math.fabs(i) <= 0.001:
-                                funcao = funcao
+                        if operations == "+":
+                            function_ += node
+                        elif operations == "-":
+                            function_ -= node
+                        elif operations == "*":
+                            function_ *= node
+                        elif operations == "/":
+                            if math.fabs(node) <= 0.001:
+                                function_ = function
                             else:    
-                                funcao /= i
+                                function_ /= node
                 else:
                     if count == 0:
-                        funcao = float(v[int(float(i))])
+                        function_ = float(value[int(float(node))])
                         count = 1
-                    else:                    
-                        if operacoes == "+":
-                            funcao += float(v[int(i)])
-                        elif operacoes == "-":
-                            funcao -= float(v[int(i)])
-                        elif operacoes == "*":
-                            funcao *= float(v[int(i)])
-                        elif operacoes == "/":
-                            if math.fabs(float(v[int(i)])) <= 0.001:
-                                funcao = funcao
+                    else:
+                        if operations == "+":
+                            function_ += float(value[int(node)])
+                        elif operations == "-":
+                            function_ -= float(value[int(node)])
+                        elif operations == "*":
+                            function_ *= float(value[int(node)])
+                        elif operations == "/":
+                            if math.fabs(float(value[int(node)])) <= 0.001:
+                                function_ = function_
                             else:
-                                funcao /= float(v[int(i)])
-            dic_funcao[k] = funcao
-            
-    def _InOrder(self, tree, list_funcao):
-        if tree == None: 
-            return
-        self._InOrder(tree.left, list_funcao)
-        list_funcao.append(tree.cargo)
-        self._InOrder(tree.right, list_funcao)
+                                function_ /= float(value[int(node)])
+            function[key] = function_
 
     def test(self):
         print (self._deph)
