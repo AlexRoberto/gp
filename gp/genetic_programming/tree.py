@@ -15,10 +15,3 @@ class Tree(object):
             return "%s %s %s" % (str(self.left), str(self.cargo), str(self.right))
         else:
             return str(self.cargo)
-        
-    def InOrder(self, tree, functions):
-        if tree == None: 
-            return
-        self._InOrder(tree.left, functions)
-        functions.append(tree.cargo)
-        self._InOrder(tree.right, functions)

@@ -9,7 +9,7 @@ def main():
     util = Utils()
     args = util.args(sys.argv[1])
     gp = Genetic_Programming(args)
-    gp.gp()
+    gp.gp_facade()
     gp.test()
 if __name__ == '__main__':
     main()

@@ -12,6 +12,8 @@ class Utils(object):
         self._args[first_test] = "pop_len 100 \
                         max_it 50 \
                         deph 7 \
+                        mutation_tax 40 \
+                        crossover_tax 60 \
                         tr \
                         /home/alex/git/gp/gp/genetic_programming/database/tr0.arff \
                         /home/alex/git/gp/gp/genetic_programming/database/tr1.arff \
@@ -28,6 +30,8 @@ class Utils(object):
         self._args[second_test] = "pop_len 100 \
                         max_it 50 \
                         deph 7 \
+                        mutation_tax 40 \
+                        crossover_tax 60 \
                         tr \
                         /home/alex/git/gp/gp/genetic_programming/database/monk/monks1_train.arff \
                         te \
