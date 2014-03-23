@@ -7,7 +7,7 @@ from numpy import math
 from operator import itemgetter
 import random
 
-from genetic_programming.tree import Tree
+from genetic_programming.tree import Tree, mutation, crossover
 
 
 class Genetic_Programming(object):
@@ -27,6 +27,15 @@ class Genetic_Programming(object):
     _operations = {0:"+", 1:"-", 2:"+", 3:"/"}
     _mutation_tax = 0
     _crossover_tax = 0
+    _fitness_median = 0.0
+    _num_zeros = 0
+    _num_ones = 0
+    _num_wrongs = 0
+    _num_hits = 0
+    _doing_train = False
+    _threshold = 0.0
+    _fitness = 0.0
+    
     def __init__(self, args):
         pop_len = False
         max_it = False
@@ -77,28 +86,34 @@ class Genetic_Programming(object):
         self._load_train_or_test_(self._test)
         self._create_population_()
         self._fitness()
-        
+        self._doing_train = True
+        the_most_adapted = 0
         max_it = 0
         while max_it < self._max_it:
-            first_individual = 1
-            second_individual = 2
             first_deph = 1
-            individual1 = self._select_individual()
-            individual2 = self._select_individual(individual1)
+            individual1, index = self._select_individual()
+            individual2, index = self._select_individual(index)
             self._append_individual(individual1)
             self._append_individual(individual2)
             if (random.randint(0,100) <= self._mutation_tax):
-                self._mutation(individual1, first_deph, random.randint(1,self._deph))
-                self._mutation(individual2, first_deph, random.randint(1,self._deph))
+                mutation(self._operations, individual1["key"], first_deph, random.randint(1,self._deph))
+                mutation(self._operations, individual2["key"], first_deph, random.randint(1,self._deph))
             else:
-                individual1, individual2 = self._crossover(individual1, individual2)
-                new_individual1 = self._individual_restart(individual1["key"])
-                new_individual2 = self._individual_restart(individual2["key"])
+                tree1, tree2 = crossover(individual1["key"], individual2["key"])
+                new_individual1 = self._individual_restart(tree1)
+                new_individual2 = self._individual_restart(tree2)
                 self._append_individual(new_individual1)
                 self._append_individual(new_individual2)
             self._fitness()
-            #TODO
-        self.test()
+            self._population = sorted(self._population, key=itemgetter("fitness"), reverse = True)
+            max_it += 1
+        for individual in self._population:
+            self._fitness_median += individual["fitness"]
+        self._fitness_median /= len(self._population)
+        self._doing_train = False
+        self._threshold = self._population[the_most_adapted]["threshold"]
+        self._fitness = self._population[the_most_adapted]["fitness"]
+        self.classify_test(self._population[the_most_adapted])
         
     def _load_train_or_test_(self, train_or_test):
         count = 0
@@ -233,7 +248,7 @@ class Genetic_Programming(object):
                     del self._population[count]
                     continue
                 
-    def _normalized(self, function_normalized, function, count):
+    def _normalized(self, function_normalized, function, count=-1):
         values = []
         for key, value in function.items():
             values.append(value)
@@ -315,10 +330,15 @@ class Genetic_Programming(object):
     
     def _function(self, individual, function):
         functions = []
+        set_ = {}
         self._InOrder(individual["key"], functions)
         '''para cada objeto, calcula a funcao correspondente a ele baseado no 
         individuo que chegou'''
-        for key, value in self._train_set.iteritems():
+        if self._doing_train == True:
+            set_ = self._train_set
+        else:
+            set_ = self._train_set
+        for key, value in set_.iteritems():
             function_ = 0
             count = 0
             operations = ""
@@ -368,80 +388,52 @@ class Genetic_Programming(object):
         functions.append(tree.cargo)
         self._InOrder(tree.right, functions)
         
-    def _select_individual(self, individual=None):
+    def _select_individual(self, first_index=-1):
         if len(self._population) == 0 or len(self._population) == 1:
             quit()
         while(1):
-            first = self._population[random.randint(0,len(self._population)-1)]
-            if individual != None and individual["fitness"] == first["fitness"]:
+            individual_index1 = random.randint(0,len(self._population)-1)
+            first = self._population[individual_index1]
+            if first_index != -1 and individual_index1 == first_index:
                 continue
-            second = self._population[random.randint(0,len(self._population)-1)]
-            if individual != None and individual["fitness"] == second["fitness"]:
+            individual_index2 = random.randint(0,len(self._population)-1)
+            second = self._population[individual_index2]
+            if first_index != -1 and individual_index2 == first_index:
                 continue
-            if first["fitness"] != second["fitness"]:
+            if individual_index1 != individual_index2:
                 break
         if first["fitness"] >= second["fitness"]:
-            return first
+            return first, individual_index1
         else:
-            return second
+            return second, individual_index2
     
     def _append_individual(self, individual):
         self._population.append(individual)
-        
-    def _mutation(self, individual, deph, level):
-        if individual == None or deph > level:
-            return
-        else:
-            if individual.cargo == "+" or individual.cargo == "-" or individual.cargo == "*" or individual.cargo == "/":
-                individual.cargo = self._operations[random.randint(0, len(self._operations) - 1)]
-            else:
-                individual.cargo = random.uniform(-1000.0, 1000)
-        self._mutation(individual.left, self._operations, deph+1, level)
-        self._mutation(individual.right, self._operations, deph+1, level)
-        
-    def _overlap(self, individual1, individual2):
-        if individual1["key"] is not None and individual2["key"] is not None:
-            left = self._overlap(individual1["key"].left, individual2["key"].left)
-            right = self._overlap(individual1["key"].right, individual2["key"].right)
-            return 1 + left + right
-        else:
-            return 0
-    
-    def _make_crossover(self, individual1, individual2, position):
-        left_overlap = self._overlap(individual1["key"].left, individual2["key"].left)
-        right_overlap = self._overlap(individual1["key"].right, individual1["key"].right)
-        assert position <= left_overlap + right_overlap + 1
-        assert position >= 1
-        if position <= left_overlap:
-            assert left_overlap >= 1
-            left1, left2 = self._make_crossover(individual1["key"].left, individual2["key"].left, position)
-            right1, right2 = individual1["key"].right, individual2["key"].right
-            individual1["key"] = Tree(individual1["key"].cargo, left1, right1)
-            individual2["key"] = Tree(individual2["key"].cargo, left2, right2)
-            return individual1, individual2
-        elif position == left_overlap + 1:
-            individual2["key"] = Tree(individual1["key"].cargo, individual1["key"].left, individual1["key"].right)
-            individual1["key"] = Tree(individual2["key"].cargo,individual2["key"].left, individual2["key"].right)
-            return individual1, individual2
-        else:
-            new_position = position - (left_overlap + 1)
-            assert new_position >= 1
-            assert right_overlap >= 1
-            left1, left2 = individual1["key"].left, individual2["key"].left
-            right1, right2 = self._make_crossover(individual1["key"].right, individual2["key"].right, new_position)
-            individual1["key"] = Tree(individual1["key"].cargo, left1, right1)
-            individual2["key"] = Tree(individual2["key"].cargo, left2, right2)
-            return individual1, individual2
-        
-    
-    def _crossover(self, individual1, individual2):
-        s = self._overlap(individual1, individual2)
-        position = random.randint(1, s)
-        (individual1, individual2) = self._make_crossover(individual1, individual2, position)
-        return individual1, individual2
     
     def _individual_restart(self, tree):
         return {"fitness": 0.0, "key": tree, "threshold": 0, "tp":0, "tn":0, "fp":0, "fn": 0, "calculou":False}
+    
+    def classify_test(self, individual_most_adapted):
+        function = {} #a chave eh o id do objeto, o item eh a funcao
+        function_normalized = {} #normalizada entre 0 e 1 
+        self._function(individual_most_adapted, function)
+        self._normalized(function_normalized, function)
+        
+        first_class = 0
+        second_class = 1
+        for key, value in function_normalized.items():
+            if value > self._threshold:
+                if self._class_data_test_[key] == self._class_[first_class]:
+                    self._num_zeros += 1
+                    self._num_hits += 1
+                else:
+                    self._num_wrongs += 1
+            else:
+                if self._class_data_test_[key] == self._class_[second_class]:
+                    self._num_ones += 1
+                    self._num_hits += 1
+                else:
+                    self._num_wrongs += 1
 
     def test(self):
         print (self._deph)
@@ -457,3 +449,10 @@ class Genetic_Programming(object):
         print (self._train_set)
         print (self._test_set)
         print (self._population)
+        print (self._fitness_median)
+        print (self._fitness)
+        print (self._threshold)
+        print (self._num_ones)
+        print (self._num_zeros)
+        print (self._num_hits)
+        print (self._num_wrongs)
