@@ -27,8 +27,8 @@ class Utils(object):
                         /home/alex/git/gp/gp/genetic_programming/database/te3.arff \
                         /home/alex/git/gp/gp/genetic_programming/database/te4.arff"
         second_test = "2"
-        self._args[second_test] = "pop_len 100 \
-                        max_it 2 \
+        self._args[second_test] = "pop_len 500 \
+                        max_it 100 \
                         deph 7 \
                         mutation_tax 40 \
                         crossover_tax 60 \

@@ -85,27 +85,30 @@ class Genetic_Programming(object):
         self._load_train_or_test_(self._train)
         self._load_train_or_test_(self._test)
         self._create_population_()
-        self._fitness()
         self._doing_train = True
+        self._fitness()
         the_most_adapted = 0
         max_it = 0
         while max_it < self._max_it:
             first_deph = 1
             individual1, index = self._select_individual()
             individual2, index = self._select_individual(index)
-            self._append_individual(individual1)
-            self._append_individual(individual2)
             if (random.randint(0,100) <= self._mutation_tax):
                 mutation(self._operations, individual1["key"], first_deph, random.randint(1,self._deph))
                 mutation(self._operations, individual2["key"], first_deph, random.randint(1,self._deph))
+                new_individual1 = self._individual_restart(individual1["key"])
+                new_individual2 = self._individual_restart(individual2["key"])
             else:
                 tree1, tree2 = crossover(individual1["key"], individual2["key"])
                 new_individual1 = self._individual_restart(tree1)
                 new_individual2 = self._individual_restart(tree2)
-                self._append_individual(new_individual1)
-                self._append_individual(new_individual2)
+            self._append_individual(new_individual1)
+            self._append_individual(new_individual2)
             self._fitness()
             self._population = sorted(self._population, key=itemgetter("fitness"), reverse = True)
+            if len(self._population) == 0:
+                quit()
+            print("%d %d %f")%(max_it, len(self._population), self._population[the_most_adapted]["fitness"])
             max_it += 1
         for individual in self._population:
             self._fitness_median += individual["fitness"]
@@ -113,7 +116,7 @@ class Genetic_Programming(object):
         self._doing_train = False
         self._threshold = self._population[the_most_adapted]["threshold"]
         self._fitness = self._population[the_most_adapted]["fitness"]
-        self.classify_test(self._population[the_most_adapted])
+        self._classify_test(self._population[the_most_adapted])
         
     def _load_train_or_test_(self, train_or_test):
         count = 0
@@ -217,10 +220,10 @@ class Genetic_Programming(object):
                 return Tree(operador, filho_esquerda, filho_direita)
             
     def _fitness(self):
-        function = {} #a chave eh o id do objeto, o item eh a funcao
-        function_normalized = {} #normalizada entre 0 e 1    
         count = 0
         for individual in self._population:
+            function = {} #a chave eh o id do objeto, o item eh a funcao
+            function_normalized = {} #normalizada entre 0 e 1  
             if individual["calculou"] == True:
                 count += 1
                 continue
@@ -229,11 +232,15 @@ class Genetic_Programming(object):
                 self._function(individual, function)
                 
                 #normaliza        
-                self._normalized(function_normalized, function, count)
-                
+                count_aux = self._normalized(function_normalized, function, count)
+                if count_aux != count:
+                    del self._population[count_aux]
+                    continue
                 #calcula threshold
-                self._threshold(function_normalized, function, count)
-
+                count_aux = self._threshold(function_normalized, function, count)
+                if count_aux != count:
+                    del self._population[count_aux]
+                    continue
                 #precision and recall
                 precision, recall, tp, fp, fn, tn = self._matrix_confusion(function_normalized, function, count)
                 try:
@@ -259,10 +266,12 @@ class Genetic_Programming(object):
         maximo - minimo = 0, logo, ele nao eh util'''
         if max_ == min_:
             del self._population[count]
-            return
+            count -= 1
+            return count
         for key, value in function.items():
             function_normalized[key] = float((value - min_)/(max_-min_))
-            
+        return count
+    
     def _threshold(self, function_normalized, function, count):
         thresholds = []
         thresholds_options = []
@@ -282,20 +291,23 @@ class Genetic_Programming(object):
 
             hit = 0
             for threshold_final in thresholds_final:
-                if (threshold_final['class'] == function[threshold_final['key']] and \
-                        function[threshold_final['key']] == self._class_[first_class]):
+                if (threshold_final['class'] == self._class_data_train_[threshold_final["key"]] and \
+                        self._class_data_train_[threshold_final["key"]] == self._class_[first_class]):
                     hit += 1
-                elif(threshold_final['class'] == function[threshold_final['key']] and \
-                        function[threshold_final['key']] == self._class_[second_class]):
+                elif(threshold_final['class'] == self._class_data_train_[threshold_final["key"]] and \
+                        self._class_data_train_[threshold_final["key"]] == self._class_[second_class]):
                     hit += 1
             thresholds.append({"threshold": threshold, "hit": hit})
 
         thresholds = sorted(thresholds, key=itemgetter("hit"),reverse = True)
         first_threshold = 0
+        if thresholds[first_threshold]["hit"] == 0:
+            return count - 1
         threshold = thresholds[first_threshold]["threshold"]
         self._population[count]["threshold"] = threshold
         self._population[count]["calculou"] = True
-        
+        return count
+    
     def _matrix_confusion(self, function_normalized, function, count):
         classified = {}
         
@@ -315,11 +327,11 @@ class Genetic_Programming(object):
         tn = 0 #true negative
 
         for key, value in classified.iteritems():
-            if (classified[key] == self._class_[second_class]) and (value == self._class_[second_class]):#tp
+            if (value == self._class_[second_class]) and (self._class_[second_class] == self._class_data_train_[key]):#tp
                 tp += 1
-            elif (classified[key] == self._class_[first_class]) and (value == self._class_[first_class]): #tn
+            elif (value == self._class_[first_class]) and (self._class_[first_class] == self._class_data_train_[key]): #tn
                 tn += 1
-            elif (classified[key] == self._class_[second_class]) and (value == self._class_[first_class]): #fp
+            elif (value == self._class_[second_class]) and (self._class_[first_class] == self._class_data_train_[key]): #fp
                 fp += 1
             else: #fn
                 fn += 1
@@ -337,14 +349,14 @@ class Genetic_Programming(object):
         if self._doing_train == True:
             set_ = self._train_set
         else:
-            set_ = self._train_set
+            set_ = self._test_set
         for key, value in set_.iteritems():
             function_ = 0
             count = 0
             operations = ""
             
             for node in functions:
-                if node == "+" or node == "-" or node == "/" or node == "*" or node == "/":
+                if node == "+" or node == "-" or node == "/" or node == "*":
                     operations = node
                     continue
                 if type(node) is float:
@@ -413,7 +425,7 @@ class Genetic_Programming(object):
     def _individual_restart(self, tree):
         return {"fitness": 0.0, "key": tree, "threshold": 0, "tp":0, "tn":0, "fp":0, "fn": 0, "calculou":False}
     
-    def classify_test(self, individual_most_adapted):
+    def _classify_test(self, individual_most_adapted):
         function = {} #a chave eh o id do objeto, o item eh a funcao
         function_normalized = {} #normalizada entre 0 e 1 
         self._function(individual_most_adapted, function)
@@ -422,7 +434,7 @@ class Genetic_Programming(object):
         first_class = 0
         second_class = 1
         for key, value in function_normalized.items():
-            if value > self._threshold:
+            if value < self._threshold:
                 if self._class_data_test_[key] == self._class_[first_class]:
                     self._num_zeros += 1
                     self._num_hits += 1
@@ -452,7 +464,7 @@ class Genetic_Programming(object):
         print (self._fitness_median)
         print (self._fitness)
         print (self._threshold)
-        print (self._num_ones)
         print (self._num_zeros)
+        print (self._num_ones)
         print (self._num_hits)
         print (self._num_wrongs)
