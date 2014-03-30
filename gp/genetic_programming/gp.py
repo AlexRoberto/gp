@@ -6,6 +6,7 @@ Created on 16/03/2014
 from numpy import math
 from operator import itemgetter
 import random
+import logging
 
 from genetic_programming.tree import Tree, mutation, crossover
 
@@ -24,6 +25,7 @@ class Genetic_Programming(object):
     _class_data_train_ = {}
     _class_data_test_ = {}
     _population = []
+    _classified = {}
     _operations = {0:"+", 1:"-", 2:"+", 3:"/"}
     _mutation_tax = 0
     _crossover_tax = 0
@@ -35,8 +37,20 @@ class Genetic_Programming(object):
     _doing_train = False
     _threshold = 0.0
     _fitness = 0.0
+    _log = None
     
+
+    def _init_log(self):
+        self._log = logging.getLogger()
+        self._log.setLevel(logging.DEBUG)
+        ch = logging.StreamHandler()
+        ch.setLevel(logging.DEBUG)
+        formatter = logging.Formatter('%(levelname)s - %(message)s')
+        ch.setFormatter(formatter)
+        self._log.addHandler(ch)
+
     def __init__(self, args):
+        self._init_log()
         pop_len = False
         max_it = False
         deph = False
@@ -81,11 +95,28 @@ class Genetic_Programming(object):
             elif te == True:
                 self._test_args.append(arg)
                 
+
+    def _verify_if_exit(self):
+        if len(self._population) == 0:
+            quit()
+
+    def _variables_individual_most_adapted(self, the_most_adapted):
+        for individual in self._population:
+            self._fitness_median += individual["fitness"]
+        
+        self._fitness_median /= len(self._population)
+        self._doing_train = False
+        self._threshold = self._population[the_most_adapted]["threshold"]
+        self._fitness = self._population[the_most_adapted]["fitness"]
+        self._train_set = {}
+
     def gp_facade(self):
+        self._log.info("Lendo treino")
         self._load_train_or_test_(self._train)
-        self._load_train_or_test_(self._test)
+        self._log.info("Criando populacao")
         self._create_population_()
         self._doing_train = True
+        self._log.info("Calculando Fitness")
         self._fitness()
         the_most_adapted = 0
         max_it = 0
@@ -106,16 +137,13 @@ class Genetic_Programming(object):
             self._append_individual(new_individual2)
             self._fitness()
             self._population = sorted(self._population, key=itemgetter("fitness"), reverse = True)
-            if len(self._population) == 0:
-                quit()
-            print("%d %d %f")%(max_it, len(self._population), self._population[the_most_adapted]["fitness"])
+            self._verify_if_exit()
+            self._log.info("%d %d %f", max_it, len(self._population), self._population[the_most_adapted]["fitness"])
             max_it += 1
-        for individual in self._population:
-            self._fitness_median += individual["fitness"]
-        self._fitness_median /= len(self._population)
-        self._doing_train = False
-        self._threshold = self._population[the_most_adapted]["threshold"]
-        self._fitness = self._population[the_most_adapted]["fitness"]
+        self._variables_individual_most_adapted(the_most_adapted)
+        self._log.info("Lendo treino")
+        self._load_train_or_test_(self._test)
+        self._log.info("Fazendo classificacao")
         self._classify_test(self._population[the_most_adapted])
         
     def _load_train_or_test_(self, train_or_test):
@@ -163,10 +191,6 @@ class Genetic_Programming(object):
             self._population.append({"fitness": 0.0,
                                      "key": individual,
                                      "threshold": 0.0,
-                                     "tp":0,
-                                     "tn":0,
-                                     "fp":0,
-                                     "fn": 0,
                                      "calculou":False})
             if deph == self._deph:
                 deph = 2
@@ -178,7 +202,7 @@ class Genetic_Programming(object):
             '''escolhe se vai ser uma constante ou uma variavel. Um tipo de uma 
             constante sera float e de uma variavel sera str'''
             aux = random.randint(0,100)
-            if aux > 70:            
+            if aux > 70:
                 atributo = random.uniform(-1000.0, 1000.0)
                 return Tree(atributo)
             else:
@@ -197,8 +221,8 @@ class Genetic_Programming(object):
             '''escolhe se vai ser uma constante ou uma variavel. Um tipo de uma 
             constante sera float e de uma variavel sera str'''
             aux = random.randint(0,100)
-            if aux > 70:            
-                atributo = random.uniform(-1000.0, 1000.0)            
+            if aux > 70:
+                atributo = random.uniform(-1000.0, 1000.0)
                 return Tree(atributo)
             else:
                 n = random.randint(0, num_features - 1)
@@ -211,7 +235,7 @@ class Genetic_Programming(object):
             if aux == 0:
                 filho_esquerda = self._grow(profundidade - 1, num_features)
                 return Tree(operador, filho_esquerda)
-            elif aux == 1:    
+            elif aux == 1:
                 filho_direita = self._grow(profundidade - 1, num_features)
                 return Tree(operador, filho_direita)
             else:
@@ -242,14 +266,9 @@ class Genetic_Programming(object):
                     del self._population[count_aux]
                     continue
                 #precision and recall
-                precision, recall, tp, fp, fn, tn = self._matrix_confusion(function_normalized, function, count)
+                fitness = self._matrix_confusion(function_normalized, function, count)
                 try:
-                    fitness = 2.0*(precision*recall)/(precision+recall)
                     self._population[count]["fitness"] = fitness
-                    self._population[count]["tp"] = tp
-                    self._population[count]["tn"] = tn
-                    self._population[count]["fp"] = fp
-                    self._population[count]["fn"] = fn
                     count += 1
                 except:
                     del self._population[count]
@@ -338,7 +357,8 @@ class Genetic_Programming(object):
 
         precision = float(tp)/float(tp+fp)
         recall = float(tp)/float(tp+fn)
-        return(precision, recall,tp, fp, fn, tn)
+        fitness = 2.0*(precision*recall)/(precision+recall)
+        return fitness
     
     def _function(self, individual, function):
         functions = []
@@ -393,16 +413,15 @@ class Genetic_Programming(object):
                                 function_ /= float(value[int(node)])
             function[key] = function_
             
-    def _InOrder(self, tree, functions):
-        if tree == None: 
+    def _InOrder(self, individual, functions):
+        if individual == None: 
             return
-        self._InOrder(tree.left, functions)
-        functions.append(tree.cargo)
-        self._InOrder(tree.right, functions)
+        self._InOrder(individual.left, functions)
+        functions.append(individual.cargo)
+        self._InOrder(individual.right, functions)
         
     def _select_individual(self, first_index=-1):
-        if len(self._population) == 0 or len(self._population) == 1:
-            quit()
+        self._verify_if_exit()
         while(1):
             individual_index1 = random.randint(0,len(self._population)-1)
             first = self._population[individual_index1]
@@ -423,7 +442,7 @@ class Genetic_Programming(object):
         self._population.append(individual)
     
     def _individual_restart(self, tree):
-        return {"fitness": 0.0, "key": tree, "threshold": 0, "tp":0, "tn":0, "fp":0, "fn": 0, "calculou":False}
+        return {"fitness": 0.0, "key": tree, "threshold": 0, "calculou":False}
     
     def _classify_test(self, individual_most_adapted):
         function = {} #a chave eh o id do objeto, o item eh a funcao
@@ -435,36 +454,31 @@ class Genetic_Programming(object):
         second_class = 1
         for key, value in function_normalized.items():
             if value < self._threshold:
+                self._classified[key] = self._class_[first_class]
                 if self._class_data_test_[key] == self._class_[first_class]:
                     self._num_zeros += 1
                     self._num_hits += 1
                 else:
                     self._num_wrongs += 1
             else:
+                self._classified[key] = self._class_[second_class]
                 if self._class_data_test_[key] == self._class_[second_class]:
                     self._num_ones += 1
                     self._num_hits += 1
                 else:
                     self._num_wrongs += 1
 
-    def test(self):
-        print (self._deph)
-        print (self._max_it)
-        print (self._pop_len)
-        print (self._mutation_tax)
-        print (self._crossover_tax)
-        print (self._train_args)
-        print (self._test_args)
-        print (self._class_)
-        print (self._class_data_train_)
-        print (self._class_data_test_)
-        print (self._train_set)
-        print (self._test_set)
-        print (self._population)
-        print (self._fitness_median)
-        print (self._fitness)
-        print (self._threshold)
-        print (self._num_zeros)
-        print (self._num_ones)
-        print (self._num_hits)
-        print (self._num_wrongs)
+    def basic_information(self):
+        self._log.info("Profundidade %d", self._deph)
+        self._log.info("Maximo de iteracoes %d", self._max_it)
+        self._log.info("Tamanho da populacao inicial %d", self._pop_len)
+        self._log.info("Taxa de mutacao %f", self._mutation_tax)
+        self._log.info("Taxa de cruzamento %f", self._crossover_tax)
+        self._log.info("Tamanho da populacao final %d", len(self._population))
+        self._log.info("Fitness media %f", self._fitness_median)
+        self._log.info("Fitness do individuo mais forte %f", self._fitness)
+        self._log.info("Threshold do individuo mais forte %f", self._threshold)
+        self._log.info("Primeira classe classificada corretamente %d", self._num_zeros)
+        self._log.info("Segunda classe classificada corretamente %d", self._num_ones)
+        self._log.info("Numero de acertos totais %d", self._num_hits)
+        self._log.info("Numero de erros totais %d", self._num_wrongs)
